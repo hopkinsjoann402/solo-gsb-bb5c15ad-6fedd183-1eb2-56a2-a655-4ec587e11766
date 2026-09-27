@@ -184,6 +184,29 @@ describe('computeProtectedHits 以决策溯源为输入', () => {
     expect(hits[0].entry.final).toBe(3);
   });
 
+  it('新增 null 的变更参与命中：受保护路径不被绕过', () => {
+    // 基线 / 目标均为 {}，当前新增 {"a": null}：/a 必须作为 add 条目进入命中计算
+    const entries = trace({}, { a: null }, {});
+    expect(entries).toHaveLength(1);
+    expect(entries[0].change).toBe('add');
+    const { rules } = parseProtectedRules('/a\n');
+    const hits = computeProtectedHits(entries, rules);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].entry.pointer).toBe('/a');
+    expect(hits[0].entry.final).toBeNull();
+  });
+
+  it('已有值改为 null 记为 replace：命中自身与后代保护规则', () => {
+    const entries = trace({ a: { b: 1 } }, { a: null }, { a: { b: 1 } });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].change).toBe('replace');
+    // 自身规则与后代规则均命中（replace 波及受保护后代）
+    const { rules } = parseProtectedRules('/a\n/a/b\n');
+    const hits = computeProtectedHits(entries, rules);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].rules.map((r) => r.pattern)).toEqual(['/a', '/a/b']);
+  });
+
   it('未变更路径与未命中规则不产生命中项；空规则 → 无命中', () => {
     const entries = trace({ a: 1, b: 2 }, { a: 9, b: 2 }, { a: 1, b: 2 });
     const { rules } = parseProtectedRules('/b\n/c\n');

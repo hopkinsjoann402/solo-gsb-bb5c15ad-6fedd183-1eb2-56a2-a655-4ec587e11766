@@ -5,10 +5,10 @@
 ## 快速启动（Docker Compose，一条命令）
 
 ```bash
-docker compose up --build
+docker compose up --build --wait
 ```
 
-启动后访问：**http://localhost:8080**
+`--wait` 会等待容器健康检查通过（nginx 就绪可响应）后再返回，随后访问：**http://localhost:8080**
 
 停止：`docker compose down`
 
@@ -98,7 +98,7 @@ npm test           # 运行合并逻辑单元测试（vitest）
 
 ## 引用完整性检查
 
-入口：第 3 步「导出结果」页面，「受保护路径检查」面板下方，勾选「**引用完整性检查**」开启（Docker Compose 一键启动后全程在浏览器访问 **http://localhost:8080** 操作，启动命令见上文「快速启动」：`docker compose up --build`）。用于在导出前核对合并结果中的引用是否都能解析到目标对象的身份：
+入口：第 3 步「导出结果」页面，「受保护路径检查」面板下方，勾选「**引用完整性检查**」开启（Docker Compose 一键启动后全程在浏览器访问 **http://localhost:8080** 操作，启动命令见上文「快速启动」：`docker compose up --build --wait`）。用于在导出前核对合并结果中的引用是否都能解析到目标对象的身份：
 
 - **规则配置（JSON 数组）**：每条规则指定三个字段，修改后点击「应用规则」生效，「清空」移除全部规则：
 

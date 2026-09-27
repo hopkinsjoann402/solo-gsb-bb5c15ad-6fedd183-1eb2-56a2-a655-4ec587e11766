@@ -129,6 +129,73 @@ describe('buildDecisionTrace 新增 / 删除（删除值保留为条目）', () 
   });
 });
 
+describe('buildDecisionTrace null 值与缺失判定', () => {
+  it('基线 / 目标均为 {}、当前新增 null → /a 按 add 列出，final 为 null 而非缺失', () => {
+    const { entries, merged } = trace({}, { a: null }, {});
+    expect(merged).toEqual({ a: null });
+    expect(entries).toHaveLength(1);
+    const e = entries[0];
+    expect(e.pointer).toBe('/a');
+    expect(e.source).toBe('ours-only');
+    expect(e.change).toBe('add');
+    expect(e.base).toBe(ABSENT);
+    expect(e.ours).toBeNull();
+    expect(e.final).toBeNull();
+    expect(e.final).not.toBe(ABSENT);
+  });
+
+  it('仅目标分支新增 null → theirs-only / add，同样列出', () => {
+    const { entries } = trace({}, {}, { a: null });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ pointer: '/a', source: 'theirs-only', change: 'add' });
+    expect(entries[0].final).toBeNull();
+  });
+
+  it('双方新增相同的 null → both / add', () => {
+    const { entries } = trace({}, { a: null }, { a: null });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ pointer: '/a', source: 'both', change: 'add' });
+    expect(entries[0].final).toBeNull();
+  });
+
+  it('已有值改为 null → replace（不误记为删除），final 为 null', () => {
+    const { entries } = trace({ a: 1 }, { a: null }, { a: 1 });
+    expect(entries).toHaveLength(1);
+    const e = entries[0];
+    expect(e.pointer).toBe('/a');
+    expect(e.source).toBe('ours-only');
+    expect(e.change).toBe('replace');
+    expect(e.base).toBe(1);
+    expect(e.final).toBeNull();
+    expect(e.final).not.toBe(ABSENT);
+  });
+
+  it('真实删除仍标为缺失：remove 且 final 为 ABSENT', () => {
+    const { entries } = trace({ a: 1 }, {}, { a: 1 });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].change).toBe('remove');
+    expect(entries[0].final).toBe(ABSENT);
+  });
+
+  it('冲突采用含 null 的一侧 → 按实际值记录 final', () => {
+    const { entries } = trace({ a: 1 }, { a: null }, { a: 2 }, { c0: { kind: 'ours' } });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      pointer: '/a',
+      source: 'conflict-ours',
+      change: 'replace',
+    });
+    expect(entries[0].final).toBeNull();
+  });
+
+  it('嵌套对象内新增的 null 同样逐键列出', () => {
+    const { entries } = trace({ o: { x: 1 } }, { o: { x: 1, y: null } }, { o: { x: 1 } });
+    expect(entries.map((e) => e.pointer)).toEqual(['/o/y']);
+    expect(entries[0].change).toBe('add');
+    expect(entries[0].final).toBeNull();
+  });
+});
+
 describe('buildDecisionTrace 路径与失效子路径', () => {
   it('路径遵循 RFC 6901 转义（/ 与 ~）', () => {
     const { entries } = trace({ 'a/b': 1, 'm~n': 2 }, { 'a/b': 1, 'm~n': 3 }, {
@@ -269,6 +336,38 @@ describe('buildTraceReport 报告', () => {
 
     // 报告可 JSON 序列化
     expect(() => JSON.stringify(report)).not.toThrow();
+  });
+
+  it('新增 null 与改为 null 在报告中按实际值呈现（present:true, value:null）', () => {
+    // /a 仅当前新增 null → add；/b 已有值改为 null → replace（同层只加键不改形态，展开到叶子）
+    const { entries } = trace({ b: 1 }, { a: null, b: null }, { b: 1 });
+    const report = buildTraceReport(entries, new Date('2026-09-27T00:00:00.000Z'));
+    expect(report.summary.total).toBe(2);
+    expect(report.summary.add).toBe(1);
+    expect(report.summary.replace).toBe(1);
+    expect(report.summary.remove).toBe(0);
+
+    const a = report.entries.find((e) => e.pointer === '/a')!;
+    expect(a.change).toBe('add');
+    expect(a.base).toEqual({ present: false });
+    expect(a.final).toEqual({ present: true, value: null });
+
+    const b = report.entries.find((e) => e.pointer === '/b')!;
+    expect(b.change).toBe('replace');
+    expect(b.base).toEqual({ present: true, value: 1 });
+    expect(b.final).toEqual({ present: true, value: null });
+
+    // 真实删除仍在报告中标注缺失
+    const removed = buildTraceReport(
+      trace({ c: 2 }, {}, { c: 2 }).entries,
+      new Date('2026-09-27T00:00:00.000Z'),
+    );
+    expect(removed.summary.remove).toBe(1);
+    expect(removed.entries[0].final).toEqual({ present: false });
+
+    // 报告可 JSON 序列化，且 null 值在序列化结果中保留
+    const text = JSON.stringify(report);
+    expect(text).toContain('"value":null');
   });
 
   it('countTraceEntries 按来源与变更形态统计', () => {
