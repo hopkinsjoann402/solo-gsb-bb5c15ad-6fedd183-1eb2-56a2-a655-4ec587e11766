@@ -129,6 +129,74 @@ describe('buildDecisionTrace 新增 / 删除（删除值保留为条目）', () 
   });
 });
 
+describe('buildDecisionTrace null 与缺失的区分', () => {
+  it('仅当前分支新增 null → add 条目保留，最终值为 null 而非缺失', () => {
+    const { entries } = trace({}, { a: null }, {});
+    expect(entries).toHaveLength(1);
+    const e = entries[0];
+    expect(e.pointer).toBe('/a');
+    expect(e.source).toBe('ours-only');
+    expect(e.change).toBe('add');
+    expect(e.base).toBe(ABSENT);
+    expect(e.ours).toBeNull();
+    expect(e.final).toBeNull();
+    expect(e.final).not.toBe(ABSENT);
+  });
+
+  it('已有值改为 null → replace（不记为删除）', () => {
+    const { entries } = trace({ a: 1 }, { a: null }, { a: 1 });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].pointer).toBe('/a');
+    expect(entries[0].change).toBe('replace');
+    expect(entries[0].base).toBe(1);
+    expect(entries[0].final).toBeNull();
+  });
+
+  it('双方同改为 null → both / replace', () => {
+    const { entries } = trace({ a: 1 }, { a: null }, { a: null });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].source).toBe('both');
+    expect(entries[0].change).toBe('replace');
+    expect(entries[0].final).toBeNull();
+  });
+
+  it('真实删除 null 值 → remove，最终值仍为 ABSENT', () => {
+    const { entries } = trace({ a: null }, {}, { a: null });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].change).toBe('remove');
+    expect(entries[0].base).toBeNull();
+    expect(entries[0].final).toBe(ABSENT);
+  });
+
+  it('嵌套路径上的 null 新增同样按实际变更列出', () => {
+    const { entries } = trace({ a: { x: 1 } }, { a: { x: 1, y: null } }, { a: { x: 1 } });
+    expect(entries.map((e) => e.pointer)).toEqual(['/a/y']);
+    expect(entries[0].change).toBe('add');
+    expect(entries[0].final).toBeNull();
+  });
+
+  it('报告中 null 值以 present:true 呈现，真实缺失仍是 present:false', () => {
+    // /a 已有值改为 null（replace）；/b 真实删除（remove）
+    const { entries } = trace({ a: 1, b: 2 }, { a: null }, { a: 1, b: 2 });
+    const report = buildTraceReport(entries, new Date('2026-09-27T00:00:00.000Z'));
+    expect(report.summary.total).toBe(2);
+    expect(report.summary.replace).toBe(1);
+    expect(report.summary.remove).toBe(1);
+
+    const a = report.entries.find((e) => e.pointer === '/a')!;
+    expect(a.change).toBe('replace');
+    expect(a.final).toEqual({ present: true, value: null });
+
+    const b = report.entries.find((e) => e.pointer === '/b')!;
+    expect(b.change).toBe('remove');
+    expect(b.final).toEqual({ present: false });
+
+    // 报告可 JSON 序列化（null 值保留）
+    const text = JSON.stringify(report);
+    expect(text).toContain('"value":null');
+  });
+});
+
 describe('buildDecisionTrace 路径与失效子路径', () => {
   it('路径遵循 RFC 6901 转义（/ 与 ~）', () => {
     const { entries } = trace({ 'a/b': 1, 'm~n': 2 }, { 'a/b': 1, 'm~n': 3 }, {

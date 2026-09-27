@@ -190,4 +190,27 @@ describe('computeProtectedHits 以决策溯源为输入', () => {
     expect(computeProtectedHits(entries, rules)).toEqual([]);
     expect(computeProtectedHits(entries, [])).toEqual([]);
   });
+
+  it('新增 null 的变更进入溯源清单并命中保护规则（不被当作缺失漏报）', () => {
+    const entries = trace({}, { a: null }, {});
+    expect(entries).toHaveLength(1);
+    expect(entries[0].change).toBe('add');
+    expect(entries[0].final).toBeNull();
+    const { rules } = parseProtectedRules('/a\n');
+    const hits = computeProtectedHits(entries, rules);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].entry.pointer).toBe('/a');
+    expect(hits[0].entry.change).toBe('add');
+  });
+
+  it('已有值改为 null 记为替换：命中自身与后代保护规则', () => {
+    const entries = trace({ a: 1 }, { a: null }, { a: 1 });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].change).toBe('replace');
+    const { rules } = parseProtectedRules('/a\n/a/b\n');
+    const hits = computeProtectedHits(entries, rules);
+    expect(hits).toHaveLength(1);
+    // 变更形态为 replace：命中自身规则 /a，且整体替换波及后代规则 /a/b
+    expect(hits[0].rules.map((r) => r.pattern)).toEqual(['/a', '/a/b']);
+  });
 });

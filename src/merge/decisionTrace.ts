@@ -97,9 +97,16 @@ export function buildDecisionTrace(
   const entries: TraceEntry[] = [];
   const conflictByPointer = new Map(mergeResult.conflicts.map((c) => [c.pointer, c.id]));
 
-  /** 从最终合并文档按路径读取；根为文档本身，读不到（删除 / 越界）为 ABSENT */
-  const readFinal = (segments: string[]): SideValue =>
-    segments.length === 0 ? merged : (getBySegments(merged, segments) ?? ABSENT);
+  /**
+   * 从最终合并文档按路径读取；根为文档本身，读不到（删除 / 越界）为 ABSENT。
+   * getBySegments 仅以 undefined 表示缺失；null 是真实存在的 JSON 值，
+   * 不能当作缺失（否则新增 / 改成 null 的变更会被漏报或误记为删除）。
+   */
+  const readFinal = (segments: string[]): SideValue => {
+    if (segments.length === 0) return merged;
+    const v = getBySegments(merged, segments);
+    return v === undefined ? ABSENT : v;
+  };
 
   const classify = (
     base: SideValue,
